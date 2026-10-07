@@ -228,7 +228,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
             <source media="(max-aspect-ratio: 4/5)" type="image/webp" srcSet={hallK4Tall.sources.webp} sizes="100vw" />
             <source type="image/avif" srcSet={hallK4Wide.sources.avif} sizes="100vw" />
             <source type="image/webp" srcSet={hallK4Wide.sources.webp} sizes="100vw" />
-            <img src={hallK4Wide.img.src} alt="NAVAT чайканасынын залы, Курманжан Датка көчөсү, 242" loading="lazy" decoding="async" />
+            <img src={hallK4Wide.img.src} alt="NAVAT чайканасынын залы, Курманжан Датка көчөсү, 242" decoding="async" />
           </picture>
         </div>
 

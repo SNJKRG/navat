@@ -230,13 +230,16 @@ h3 { font-size: 1.5rem; line-height: 1.2; }
 .hero__dust { z-index: 3; pointer-events: none; }
 
 /* живописный зал проявляется в реальный */
-.hero__photo { opacity: var(--photo); }
+/* Фото зала, виньетка и заголовок финала отрисованы с самого открытия (opacity ≥ .001, глазу не видно) и живут
+   на своих слоях: при opacity 0 браузер их не растрирует, и декод фото (30 мс) + растр падали на первые кадры
+   проявления зала. Так к концу видео всё готово на GPU, переход = только смешивание слоёв. */
+.hero__photo { opacity: max(var(--photo), .001); will-change: opacity; }
 .hero__photo picture { display: block; height: 100%; }
 
 .hero__stage::after {
   /* scrim под финальным текстом: кинематографичная виньетка, низ уходит в фон страницы */
   content: ''; position: absolute; inset: 0; pointer-events: none;
-  opacity: var(--final);
+  opacity: max(var(--final), .001); will-change: opacity;
   background:
     linear-gradient(to top, var(--ink) 0%, rgb(11 31 30 / .86) 22%, rgb(11 31 30 / .3) 52%, rgb(11 31 30 / 0) 72%),
     linear-gradient(to right, rgb(11 31 30 / .7), rgb(11 31 30 / 0) 55%),
@@ -317,7 +320,7 @@ html[data-intro] { overflow: hidden; }
   position: absolute; inset: auto 0 0; z-index: 4;
   margin-inline: auto;
   padding-bottom: clamp(1.75rem, 5vh, 3.5rem);
-  opacity: min(1, calc(var(--final) * 2));
+  opacity: max(min(1, calc(var(--final) * 2)), .001); will-change: opacity;
 }
 .hero__final[data-on='false'] { pointer-events: none; }
 
@@ -341,6 +344,7 @@ html[data-intro] { overflow: hidden; }
   --f: clamp(0, calc(var(--final) * 1.8 - var(--i) * .25), 1);
   display: inline-block;
   transform: translateY(calc((1 - var(--f)) * 105%));
+  will-change: transform; /* без слоя крупный текст перерисовывался каждый кадр выезда */
 }
 .hero__line:nth-child(2) { padding-left: 1.1em; }
 .hero__title em {
@@ -357,12 +361,14 @@ html[data-intro] { overflow: hidden; }
   padding-top: 1.4rem;
   position: relative;
   opacity: var(--f);
+  will-change: opacity;
 }
 .hero__meta::before {
   /* волосяная линия прочерчивается слева направо */
   content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px;
   background: rgb(188 164 141 / .4);
   transform: scaleX(var(--f)); transform-origin: left;
+  will-change: transform;
 }
 .hero__sub {
   margin: 0; max-width: 36ch;
