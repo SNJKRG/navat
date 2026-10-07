@@ -98,6 +98,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     let sp = -1 // сглаженный прогресс
     let idleF = 0
     let showIdle = true
+    let scrubShown = false // scrub хоть раз стоял на нужном кадре: дальше idle не нужен
     const vars: Record<string, string> = {}
     const set = (k: string, x: number) => {
       const val = x.toFixed(4)
@@ -143,8 +144,10 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
       const want = Math.min((idleF + v * (N - 1 - idleF) + 0.5) / FPS, (scrubV.duration || 1e9) - 0.01)
       const off = Math.abs(scrubV.currentTime - want)
       if (scrubV.readyState >= 1 && !scrubV.seeking && off > 0.5 / FPS) scrubV.currentTime = want
-      const synced = scrubV.readyState >= 2 && !scrubV.seeking && off < 1.5 / FPS
-      const idleNow = idleV.readyState >= 2 && (resting || !synced)
+      // Хватает одной синхронизации: в Safari перемотка асинхронна и при скролле видео почти всегда seeking,
+      // если ждать !seeking каждый кадр, поверх всю дорогу висел замёрзший idle.
+      if (!scrubShown) scrubShown = scrubV.readyState >= 2 && !scrubV.seeking && off < 1.5 / FPS
+      const idleNow = idleV.readyState >= 2 && (resting || !scrubShown)
       if (idleNow !== showIdle) {
         showIdle = idleNow
         idleV.dataset.on = String(idleNow)
