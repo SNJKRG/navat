@@ -58,8 +58,9 @@ function gateGeometry(vw: number, vh: number) {
 }
 type Gate = ReturnType<typeof gateGeometry>
 
-// Перемотка тяжелее на мобильных декодерах: там 960 px и ключ каждый кадр, на десктопе 1600 px и ключ каждые 4.
-const scrubSrc = () => (window.innerWidth * devicePixelRatio > 1100 ? '/hero/scrub-1600.mp4' : '/hero/scrub-960.mp4')
+// Перемотка тяжелее на мобильных декодерах: телефонам всегда 960 px (ключ каждые 4 кадра, 3.3 МБ), даже при dpr 3,
+// иначе iPhone (390×3 = 1170 px) получал 1600 px и подвисал; на десктопе 1600 px (ключ каждые 8, 4.9 МБ).
+const scrubSrc = () => (innerWidth >= 700 && innerWidth * devicePixelRatio > 1100 ? '/hero/scrub-1600.mp4' : '/hero/scrub-960.mp4')
 
 export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: boolean) => void }) {
   const section = useRef<HTMLElement>(null)
@@ -69,6 +70,52 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
   const [scrub] = useState(scrubAllowed)
   const [gate, setGate] = useState<Gate>()
   const [done, setDone] = useState(!scrub)
+  const [ready, setReady] = useState(!scrub)
+
+  // Загрузка: scrub-видео качаем целиком сами и отдаём <video> как blob, тогда любая перемотка мгновенна
+  // (иначе скролл в нескачанное место стоял до 2 с). Пока качается, рамка ворот собирается, точки арки = прогресс,
+  // скролл заперт (только если стоим наверху). Медленная сеть: через 10 с отпускаем, видео идёт потоком как раньше.
+  useEffect(() => {
+    if (!scrub) return
+    const v = scrubVid.current!
+    const sec = section.current!
+    const root = document.documentElement
+    const url = scrubSrc()
+    const ac = new AbortController()
+    if (scrollY < 10) root.dataset.loading = ''
+    // ссылка шапки или «Өткөрүү» унесли со сцены: запирать уже нечего
+    const away = () => { if (scrollY > innerHeight) delete root.dataset.loading }
+    addEventListener('scroll', away, { passive: true })
+    const finish = (src: string) => {
+      clearTimeout(timer)
+      v.src = src
+      sec.style.setProperty('--load', '1')
+      delete root.dataset.loading
+      setReady(true)
+    }
+    const timer = setTimeout(() => { ac.abort(); finish(url) }, 10000)
+    ;(async () => {
+      const res = await fetch(url, { signal: ac.signal })
+      const total = Number(res.headers.get('content-length')) || 5e6
+      const reader = res.body!.getReader()
+      const chunks: BlobPart[] = []
+      let got = 0
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        got += value.length
+        sec.style.setProperty('--load', Math.min(1, got / total).toFixed(2))
+      }
+      finish(URL.createObjectURL(new Blob(chunks, { type: 'video/mp4' })))
+    })().catch(() => { if (!ac.signal.aborted) finish(url) })
+    return () => {
+      clearTimeout(timer)
+      ac.abort()
+      removeEventListener('scroll', away)
+      delete root.dataset.loading
+    }
+  }, [scrub])
 
   // Шапка: прозрачная над hero, сплошная после него.
   useEffect(() => {
@@ -93,7 +140,9 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     const dust = createDust(dustCanvas.current!)
     dust.resize()
     // iOS не показывает кадры после currentTime, пока видео ни разу не играло: «пинаем» play/pause.
-    scrubV.addEventListener('loadeddata', () => scrubV.play().then(() => scrubV.pause(), () => {}), { once: true })
+    // Энергосбережение на iPhone отклоняет play() без жеста: тогда пинаем на первом касании.
+    const kick = () => scrubV.play().then(() => scrubV.pause())
+    scrubV.addEventListener('loadeddata', () => kick().catch(() => addEventListener('touchend', () => kick().catch(() => {}), { once: true })), { once: true })
 
     let sp = -1 // сглаженный прогресс
     let idleF = 0
@@ -169,12 +218,12 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
   }
 
   return (
-    <section ref={section} className="hero" data-mode={scrub ? 'scrub' : 'still'} aria-labelledby="hero-title">
+    <section ref={section} className="hero" data-mode={scrub ? 'scrub' : 'still'} data-ready={ready} aria-labelledby="hero-title">
       <div className="hero__stage">
         {scrub && (
           <div className="hero__film" aria-hidden="true" style={gate && { transformOrigin: `${gate.cx}px ${gate.oy}px` }}>
             <Pic pic={heroFirst} alt="" sizes="100vw" eager />
-            <video ref={scrubVid} src={scrubSrc()} muted playsInline preload="auto" />
+            <video ref={scrubVid} muted playsInline preload="auto" />
             <video ref={idleVid} src="/hero/idle.mp4" muted playsInline autoPlay preload="auto" data-on="true" />
           </div>
         )}
@@ -310,9 +359,13 @@ function GateFrame({ g }: { g: Gate }) {
         <rect fill="url(#girih)" className="gate__girih" width={g.vw} height={g.vh} mask="url(#gate-clear)" />
         <rect fill="url(#gate-glow)" width={g.vw} height={g.vh} />
       </g>
-      <path d={archPath(g.cx, g.bottom, g.w, g.h, 10)} className="gate__line" />
-      <path d={archPath(g.cx, g.bottom, g.w, g.h, 24)} className="gate__line gate__line--dots" />
-      <path d={archPath(g.cx, g.bottom, g.w, g.h, 38)} className="gate__line gate__line--thin" />
+      {/* pathLength=1: контуры прорисовываются от пят к замку; точки открывает маска по прогрессу загрузки (--load) */}
+      <path d={archPath(g.cx, g.bottom, g.w, g.h, 10)} pathLength={1} className="gate__line gate__draw" />
+      <mask id="gate-load" maskUnits="userSpaceOnUse">
+        <path d={archPath(g.cx, g.bottom, g.w, g.h, 24)} pathLength={1} className="gate__load" />
+      </mask>
+      <path d={archPath(g.cx, g.bottom, g.w, g.h, 24)} className="gate__line gate__line--dots" mask="url(#gate-load)" />
+      <path d={archPath(g.cx, g.bottom, g.w, g.h, 38)} pathLength={1} className="gate__line gate__line--thin gate__draw" />
       <line x1={g.cx - g.w / 2 - 70} x2={g.cx + g.w / 2 + 70} y1={g.bottom + 0.5} y2={g.bottom + 0.5} className="gate__line gate__line--thin" />
       <g transform={`translate(${g.cx - 14} ${keyY - 14}) scale(${28 / 55})`} className="gate__key">
         {STAR_RECTS.map((r, i) => <rect key={i} x={r.x} y={r.y} width={r.width} height={r.height} transform={r.transform} />)}

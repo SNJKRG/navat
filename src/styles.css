@@ -261,6 +261,27 @@ h3 { font-size: 1.5rem; line-height: 1.2; }
 .gate__line--dots { stroke: var(--saffron); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 0 13; }
 .gate__key { fill: var(--saffron); }
 
+/* появление рамки, пока качается видео (Hero.tsx пишет --load 0..1, скролл заперт через html[data-loading]) */
+@property --load { syntax: '<number>'; inherits: true; initial-value: 0; }
+html[data-loading] { overflow: hidden; }
+.hero { transition: --load .5s var(--ease); }
+.gate__girih { animation: gate-in 1.6s var(--ease) both; }
+.gate__draw {
+  /* две половины арки сходятся к замку: штрих a, пробел 1-2a, штрих a */
+  stroke-dasharray: 0 1 0;
+  animation: gate-draw 1.8s cubic-bezier(.6, .05, .25, 1) .15s forwards;
+}
+.gate__line--thin.gate__draw { animation-delay: .45s; }
+.gate__load {
+  fill: none; stroke: #fff; stroke-width: 10;
+  stroke-dasharray: calc(var(--load) * .5) calc(1 - var(--load)) calc(var(--load) * .5);
+}
+.hero[data-ready='false'] .gate__key { animation: key-wait 1.4s ease-in-out infinite; }
+.gate__key { transition: opacity .6s var(--ease); }
+@keyframes gate-in { from { opacity: 0; } }
+@keyframes gate-draw { to { stroke-dasharray: .5 0 .5; } }
+@keyframes key-wait { 50% { opacity: .3; } }
+
 .gate__ui {
   position: absolute; inset: 0; z-index: 3; pointer-events: none;
   opacity: var(--ui-o);
