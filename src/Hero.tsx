@@ -6,18 +6,16 @@ import { hallK4Tall, hallK4Wide, heroFirst } from './media'
 import { STAR_RECTS } from './marks'
 import { Pic } from './ui'
 
-// Hero = прокручиваемая сцена (SPEC §6, пересмотрено):
+// Hero = сцена у входа (SPEC §6, пересмотрено):
 // 1) арабесковые ворота: тёмная плита с гирихом, в арке живописный кадр «дышит» (idle.mp4: 1 с видео, растянутая на 30 с
 //    со смешиванием кадров), поверх ветер и пыль;
-// 2) скролл проводит сквозь арку и ведёт видео по currentTime: караван → двор → дверь → зал.
-//    scrub-*.mp4 закодированы с ключевым кадром каждые 1–4 кадра: перемотка декодируется аппаратно, вне главного потока,
-//    память ~ один кадр (секвенция WebP на canvas декодировалась заново на каждом шаге: 3+ с на главном потоке за проход);
-// 3) живописный зал проявляется в реальное фото, появляются заголовок и кнопки, дальше обычный сайт.
-// Reduced motion / Save-Data / медленная сеть: сразу финал (фото + заголовок), без кадров.
+// 2) первый жест вниз (колесо, свайп, клавиша) запускает видео целиком: проход сквозь арку, караван → двор → дверь → зал.
+//    Обычное воспроизведение, не перемотка по скроллу: перемотку iOS Safari не тянул (кадр замирал), а играет видео плавно
+//    везде. Пока оно идёт, страница стоит (html[data-intro]);
+// 3) живописный зал проявляется в реальное фото, появляются заголовок и кнопки, скролл свободен.
+// Reduced motion / Save-Data / медленная сеть: сразу финал (фото + заголовок), без видео.
 
-// scrub-*.mp4: v3_omni_restyle, доведённый до 48 fps промежуточными кадрами (ffmpeg minterpolate, mci):
-// на 24 fps картинка при скролле шла ступеньками (кадр на ~17 px), на 48 — вдвое мельче.
-const N = 381
+// scrub-*.mp4: v3_omni_restyle, доведённый до 48 fps промежуточными кадрами (ffmpeg minterpolate, mci).
 const FPS = 48
 const IDLE_FRAMES = 48 // idle.mp4 = первая секунда (48 кадров при 48 fps), растянутая в 30 раз
 const IDLE_STRETCH = 30
@@ -58,9 +56,15 @@ function gateGeometry(vw: number, vh: number) {
 }
 type Gate = ReturnType<typeof gateGeometry>
 
-// Перемотка тяжелее на мобильных декодерах: телефонам всегда 960 px (ключ каждые 4 кадра, 3.3 МБ), даже при dpr 3,
-// иначе iPhone (390×3 = 1170 px) получал 1600 px и подвисал; на десктопе 1600 px (ключ каждые 8, 4.9 МБ).
-const scrubSrc = () => (innerWidth >= 700 && innerWidth * devicePixelRatio > 1100 ? '/hero/scrub-1600.mp4' : '/hero/scrub-960.mp4')
+// Телефон в портрете видит лишь вертикальную полосу кадра:
+// ему scrub-m720 = эта полоса (crop 540×900 из 1600×900 при x = 0.42·(1600−540), совпадает с object-position 42%),
+// 432×720, ключ каждые 4 кадра, 1.7 МБ. Прочие сенсорные экраны: 960 px; десктоп: 1600 px.
+// ponytail: файл выбирается один раз; повернул телефон после загрузки — портретная полоса растянется на ландшафт.
+function scrubSrc() {
+  if (innerWidth < 700 && innerHeight > innerWidth) return '/hero/scrub-m720.mp4'
+  if (matchMedia('(pointer: coarse)').matches || innerWidth * devicePixelRatio <= 1100) return '/hero/scrub-960.mp4'
+  return '/hero/scrub-1600.mp4'
+}
 
 export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: boolean) => void }) {
   const section = useRef<HTMLElement>(null)
@@ -70,50 +74,57 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
   const [scrub] = useState(scrubAllowed)
   const [gate, setGate] = useState<Gate>()
   const [done, setDone] = useState(!scrub)
-  const [ready, setReady] = useState(!scrub)
+  // idle: ждём жеста; play: идёт видео; end: финал. В ref, чтобы resize (новый gate) не сбрасывал сцену.
+  const phase = useRef<'idle' | 'play' | 'end'>('idle')
+  const endAt = useRef(0)
+  const finish = useRef(() => {})
 
-  // Загрузка: scrub-видео качаем целиком сами и отдаём <video> как blob, тогда любая перемотка мгновенна
-  // (иначе скролл в нескачанное место стоял до 2 с). Пока качается, рамка ворот собирается, точки арки = прогресс,
-  // скролл заперт (только если стоим наверху). Медленная сеть: через 10 с отпускаем, видео идёт потоком как раньше.
   useEffect(() => {
     if (!scrub) return
-    const v = scrubVid.current!
-    const sec = section.current!
     const root = document.documentElement
-    const url = scrubSrc()
-    const ac = new AbortController()
-    if (scrollY < 10) root.dataset.loading = ''
-    // ссылка шапки или «Өткөрүү» унесли со сцены: запирать уже нечего
-    const away = () => { if (scrollY > innerHeight) delete root.dataset.loading }
-    addEventListener('scroll', away, { passive: true })
-    const finish = (src: string) => {
-      clearTimeout(timer)
-      v.src = src
-      sec.style.setProperty('--load', '1')
-      delete root.dataset.loading
-      setReady(true)
+    const v = scrubVid.current!
+    v.src = scrubSrc()
+    const end = () => {
+      if (phase.current === 'end') return
+      phase.current = 'end'
+      endAt.current = performance.now()
+      v.pause()
+      delete root.dataset.intro
     }
-    const timer = setTimeout(() => { ac.abort(); finish(url) }, 10000)
-    ;(async () => {
-      const res = await fetch(url, { signal: ac.signal })
-      const total = Number(res.headers.get('content-length')) || 5e6
-      const reader = res.body!.getReader()
-      const chunks: BlobPart[] = []
-      let got = 0
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        chunks.push(value)
-        got += value.length
-        sec.style.setProperty('--load', Math.min(1, got / total).toFixed(2))
-      }
-      finish(URL.createObjectURL(new Blob(chunks, { type: 'video/mp4' })))
-    })().catch(() => { if (!ac.signal.aborted) finish(url) })
+    finish.current = end
+    const start = () => {
+      if (phase.current !== 'idle') return
+      phase.current = 'play'
+      const idleV = idleVid.current!
+      v.currentTime = Math.min(IDLE_FRAMES, (idleV.currentTime * FPS) / IDLE_STRETCH) / FPS // с того же кадра, что дышал
+      v.play().catch(end) // iPhone в энергосбережении не играет без тапа: сразу финал
+    }
+    // Зашли не сверху (якорь, восстановление позиции) или ссылка шапки увела со сцены: сразу финал.
+    const hash = location.hash.slice(1)
+    if (scrollY > 10 || hash) {
+      end()
+      if (hash) requestAnimationFrame(() => document.getElementById(decodeURIComponent(hash))?.scrollIntoView())
+    } else root.dataset.intro = ''
+    const away = () => { if (scrollY > 10) end() }
+    const onWheel = (e: WheelEvent) => { if (e.deltaY > 0) start() }
+    let y0 = 0
+    const onTouchStart = (e: TouchEvent) => { y0 = e.touches[0].clientY }
+    const onTouchMove = (e: TouchEvent) => { if (y0 - e.touches[0].clientY > 24) start() }
+    const onKey = (e: KeyboardEvent) => { if (e.target === document.body && ['ArrowDown', 'PageDown', ' ', 'End'].includes(e.key)) start() }
+    v.addEventListener('ended', end)
+    addEventListener('scroll', away, { passive: true })
+    addEventListener('wheel', onWheel, { passive: true })
+    addEventListener('touchstart', onTouchStart, { passive: true })
+    addEventListener('touchmove', onTouchMove, { passive: true })
+    addEventListener('keydown', onKey)
     return () => {
-      clearTimeout(timer)
-      ac.abort()
+      v.removeEventListener('ended', end)
       removeEventListener('scroll', away)
-      delete root.dataset.loading
+      removeEventListener('wheel', onWheel)
+      removeEventListener('touchstart', onTouchStart)
+      removeEventListener('touchmove', onTouchMove)
+      removeEventListener('keydown', onKey)
+      delete root.dataset.intro
     }
   }, [scrub])
 
@@ -139,15 +150,11 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     const scrubV = scrubVid.current!
     const dust = createDust(dustCanvas.current!)
     dust.resize()
-    // iOS не показывает кадры после currentTime, пока видео ни разу не играло: «пинаем» play/pause.
-    // Энергосбережение на iPhone отклоняет play() без жеста: тогда пинаем на первом касании.
-    const kick = () => scrubV.play().then(() => scrubV.pause())
-    scrubV.addEventListener('loadeddata', () => kick().catch(() => addEventListener('touchend', () => kick().catch(() => {}), { once: true })), { once: true })
-
     let sp = -1 // сглаженный прогресс
-    let idleF = 0
     let showIdle = true
-    let scrubShown = false // scrub хоть раз стоял на нужном кадре: дальше idle не нужен
+    let playing = false // scrub реально пошёл: дальше idle не нужен
+    const onPlaying = () => { playing = true }
+    scrubV.addEventListener('playing', onPlaying)
     const vars: Record<string, string> = {}
     const set = (k: string, x: number) => {
       const val = x.toFixed(4)
@@ -165,8 +172,10 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
       if (!visible) return
-      const r = sec.getBoundingClientRect()
-      const p = clamp(-r.top / (r.height - gate.vh))
+      // прогресс сцены: видео ведёт 0.03..0.84, после конца 1.4 с на проявление зала и финал
+      const ph = phase.current
+      const p = ph === 'play' ? 0.03 + 0.81 * clamp(scrubV.currentTime / (scrubV.duration || 8))
+        : ph === 'end' ? Math.min(1, 0.84 + (0.16 * (now - endAt.current)) / 1400) : 0
       sp = sp < 0 ? p : sp + (p - sp) * (1 - Math.exp(-dt * 9))
 
       const g = clamp(sp / 0.14) // проход сквозь арку
@@ -183,20 +192,10 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
       const isDone = fin > 0.5
       if (isDone !== wasDone) { wasDone = isDone; setDone(isDone) }
 
-      // В покое играет idle.mp4. Scrub-видео всё время держим на нужном кадре (и в покое тоже),
-      // а idle прячем, только когда scrub уже там: иначе в начале скролла кадр прыгал назад.
-      const resting = v < 0.002
-      if (resting && idleV.readyState >= 2) {
-        if (idleV.paused) idleV.play().catch(() => {})
-        idleF = Math.min(IDLE_FRAMES, (idleV.currentTime * FPS) / IDLE_STRETCH)
-      } else if (!resting && !idleV.paused) idleV.pause()
-      const want = Math.min((idleF + v * (N - 1 - idleF) + 0.5) / FPS, (scrubV.duration || 1e9) - 0.01)
-      const off = Math.abs(scrubV.currentTime - want)
-      if (scrubV.readyState >= 1 && !scrubV.seeking && off > 0.5 / FPS) scrubV.currentTime = want
-      // Хватает одной синхронизации: в Safari перемотка асинхронна и при скролле видео почти всегда seeking,
-      // если ждать !seeking каждый кадр, поверх всю дорогу висел замёрзший idle.
-      if (!scrubShown) scrubShown = scrubV.readyState >= 2 && !scrubV.seeking && off < 1.5 / FPS
-      const idleNow = idleV.readyState >= 2 && (resting || !scrubShown)
+      // В покое играет idle.mp4 и лежит поверх, пока scrub не пошёл (так нет скачка кадра назад).
+      if (ph === 'idle' && idleV.readyState >= 2 && idleV.paused) idleV.play().catch(() => {})
+      else if (ph !== 'idle' && !idleV.paused) idleV.pause()
+      const idleNow = idleV.readyState >= 2 && (ph === 'idle' || !playing)
       if (idleNow !== showIdle) {
         showIdle = idleNow
         idleV.dataset.on = String(idleNow)
@@ -208,17 +207,12 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     return () => {
       cancelAnimationFrame(raf)
       io.disconnect()
+      scrubV.removeEventListener('playing', onPlaying)
     }
   }, [scrub, gate])
 
-  // Клавиатура: фокус на скрытой кнопке финала → докручиваем до финала.
-  const toEnd = (smoothScroll: boolean) => {
-    const sec = section.current!
-    window.scrollTo({ top: sec.offsetTop + sec.offsetHeight - window.innerHeight, behavior: smoothScroll ? 'smooth' : 'auto' })
-  }
-
   return (
-    <section ref={section} className="hero" data-mode={scrub ? 'scrub' : 'still'} data-ready={ready} aria-labelledby="hero-title">
+    <section ref={section} className="hero" data-mode={scrub ? 'scrub' : 'still'} aria-labelledby="hero-title">
       <div className="hero__stage">
         {scrub && (
           <div className="hero__film" aria-hidden="true" style={gate && { transformOrigin: `${gate.cx}px ${gate.oy}px` }}>
@@ -248,7 +242,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
           </div>
         )}
 
-        <div className="wrap hero__final" data-on={done} onFocus={() => !done && toEnd(false)}>
+        <div className="wrap hero__final" data-on={done} onFocus={() => !done && finish.current()}>
           <h1 id="hero-title" className="hero__title">
             {hero.titleLines.map((line, i) => (
               <span key={i} className="hero__line" style={{ '--i': i } as React.CSSProperties}>
@@ -270,7 +264,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
         </div>
 
         {scrub && !done && (
-          <button type="button" className="icon-btn hero__skip" onClick={() => toEnd(true)}>
+          <button type="button" className="icon-btn hero__skip" onClick={() => finish.current()}>
             <FastForwardIcon size={16} weight="bold" />
             {hero.skip}
           </button>
@@ -359,7 +353,7 @@ function GateFrame({ g }: { g: Gate }) {
         <rect fill="url(#girih)" className="gate__girih" width={g.vw} height={g.vh} mask="url(#gate-clear)" />
         <rect fill="url(#gate-glow)" width={g.vw} height={g.vh} />
       </g>
-      {/* pathLength=1: контуры прорисовываются от пят к замку; точки открывает маска по прогрессу загрузки (--load) */}
+      {/* pathLength=1: контуры прорисовываются от пят к замку; точки (пунктир) открывает маска с тем же рисованием */}
       <path d={archPath(g.cx, g.bottom, g.w, g.h, 10)} pathLength={1} className="gate__line gate__draw" />
       <mask id="gate-load" maskUnits="userSpaceOnUse">
         <path d={archPath(g.cx, g.bottom, g.w, g.h, 24)} pathLength={1} className="gate__load" />
