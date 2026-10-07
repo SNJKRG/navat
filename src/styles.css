@@ -198,10 +198,10 @@ h3 { font-size: 1.5rem; line-height: 1.2; }
 }
 
 /* ---------- hero: прокручиваемая сцена ---------- */
-/* Переменные --gate-s/--gate-o/--ui-o/--zoom/--photo/--final пишет rAF-цикл в Hero.tsx. */
+/* --zoom/--photo/--final пишет rAF-цикл в Hero.tsx; проход сквозь арку (.gate, .gate__ui, .hero__film, .hero__skip) = Web Animations там же. */
 
 .hero {
-  --gate-s: 1; --gate-o: 1; --ui-o: 1; --zoom: 1; --photo: 0; --final: 0;
+  --zoom: 1; --photo: 0; --final: 0;
   position: relative;
   height: max(100svh, 580px);
 }
@@ -216,16 +216,17 @@ h3 { font-size: 1.5rem; line-height: 1.2; }
 }
 .hero[data-mode='still'] .hero__stage { position: relative; height: 100%; }
 
-.hero__film, .hero__film > *, .hero__photo, .hero__dust {
+.hero__film, .hero__film > *, .hero__clip, .hero__photo, .hero__dust {
   position: absolute; inset: 0;
 }
 .hero__film { transform: scale(var(--zoom)); will-change: transform; }
 .hero__dust { width: 100%; height: 100%; }
 .hero__film picture { display: block; height: 100%; }
-.hero__film img, .hero__film video, .hero__photo img { width: 100%; height: 100%; object-fit: cover; }
-.hero__film video[data-on='false'] { visibility: hidden; }
+.hero__film img, .hero__film video, .hero__film canvas, .hero__clip, .hero__photo img { width: 100%; height: 100%; object-fit: cover; }
+.hero__film video[data-on='false'] { display: none; }
+.hero__still[data-on='false'] { visibility: hidden; }
 @media (max-aspect-ratio: 1/1) {
-  .hero__film img, .hero__film video { object-position: 42% 50%; } /* портрет: ворота и караван в кадре */
+  .hero__film img, .hero__film video, .hero__film canvas, .hero__clip { object-position: 42% 50%; } /* портрет: ворота и караван в кадре */
 }
 .hero__dust { z-index: 3; pointer-events: none; }
 
@@ -249,8 +250,6 @@ h3 { font-size: 1.5rem; line-height: 1.2; }
 /* ворота */
 .gate {
   position: absolute; inset: 0; z-index: 2; pointer-events: none;
-  transform: scale(var(--gate-s));
-  opacity: var(--gate-o);
   will-change: transform, opacity; /* растр один раз, дальше только композитор; без этого SVG с масками перерисовывается каждый кадр */
 }
 .gate__plate { fill: var(--ink); }
@@ -280,7 +279,6 @@ html[data-intro] { overflow: hidden; }
 
 .gate__ui {
   position: absolute; inset: 0; z-index: 3; pointer-events: none;
-  opacity: var(--ui-o);
 }
 
 /* слоганы: каллиграфия Great Vibes, золото по тёмной плите */
@@ -414,7 +412,7 @@ html[data-intro] { overflow: hidden; }
 
 .hero__skip {
   position: absolute; z-index: 5; right: var(--gutter); bottom: 1.5rem;
-  opacity: calc(1 - var(--ui-o)); /* появляется после ворот, не спорит с подсказкой */
+  opacity: 0; /* проявляется на проходе сквозь арку (passGate), не спорит со слоганами */
 }
 @media (max-width: 720px) {
   .hero__skip { bottom: calc(env(safe-area-inset-bottom) + 80px); }

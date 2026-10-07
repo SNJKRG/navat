@@ -56,6 +56,29 @@ function gateGeometry(vw: number, vh: number) {
 }
 type Gate = ReturnType<typeof gateGeometry>
 
+// Проход сквозь арку: плита ворот растёт ×8.5 и тает, картина за ней приближается (параллакс), слоганы гаснут,
+// «Өткөрүү» проявляется. Web Animations на композиторе: Safari при каждом новом масштабе из JS заново рисовал
+// SVG-плиту с узором и масками, и кадр рос до 200 мс к ×8.5; анимация transform/opacity идёт без перерисовки.
+// Приближается только неподвижный снимок кадра (canvas): играющее видео в масштабируемом слое Safari перестраивал
+// в конце анимации (замирание 230 мс), поэтому scrub-видео лежит вне .hero__film и стартует, когда проход окончен.
+function passGate(sec: HTMLElement, z0: number, ms: number) {
+  const G = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1]
+  const gs = G.map((g) => 1 + 7.5 * g ** 2.4)
+  const opt = { duration: ms, fill: 'forwards' as const }
+  // Плита и картина без fill: по окончании сразу базовый стиль (плита прозрачна в масштабе 1, картина в 1).
+  const gate = sec.querySelector<SVGElement>('.gate')
+  const film = sec.querySelector<HTMLElement>('.hero__film')
+  if (gate) gate.style.opacity = '0'
+  if (film) film.style.transform = 'none'
+  gate?.animate(G.map((g, i) => ({ offset: g, transform: `scale(${gs[i]})`, opacity: 1 - smooth((g - 0.45) / 0.5) })), ms)
+  // К 95% плита уже растаяла: убираем её до конца анимации. На конце анимации Safari перерисовывал SVG
+  // с узором и масками даже прозрачной (замирание 240 мс в 2 случаях из 3), снятая раньше — 0 из 3.
+  setTimeout(() => { if (gate) gate.style.display = 'none' }, ms * 0.95)
+  sec.querySelector('.gate__ui')?.animate(G.map((g) => ({ offset: g, opacity: 1 - smooth(g / 0.25) })), opt)
+  sec.querySelector('.hero__skip')?.animate(G.map((g) => ({ offset: g, opacity: smooth(g / 0.25) })), opt)
+  return film?.animate(G.map((g, i) => ({ offset: g, transform: `scale(${Math.min(1, z0 * Math.sqrt(gs[i]))})` })), ms).finished ?? Promise.resolve()
+}
+
 // Телефон в портрете видит лишь вертикальную полосу кадра:
 // ему scrub-m720 = эта полоса (crop 540×900 из 1600×900 при x = 0.42·(1600−540), совпадает с object-position 42%),
 // 432×720, ключ каждые 4 кадра, 1.7 МБ. Прочие сенсорные экраны: 960 px; десктоп: 1600 px.
@@ -70,6 +93,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
   const section = useRef<HTMLElement>(null)
   const idleVid = useRef<HTMLVideoElement>(null)
   const scrubVid = useRef<HTMLVideoElement>(null)
+  const stillCanvas = useRef<HTMLCanvasElement>(null)
   const dustCanvas = useRef<HTMLCanvasElement>(null)
   const [scrub] = useState(scrubAllowed)
   const [gate, setGate] = useState<Gate>()
@@ -77,6 +101,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
   // idle: ждём жеста; play: идёт видео; end: финал. В ref, чтобы resize (новый gate) не сбрасывал сцену.
   const phase = useRef<'idle' | 'play' | 'end'>('idle')
   const endAt = useRef(0)
+  const from = useRef(0) // кадр (в секундах), на котором арка «дышала» в момент жеста: с него стартует видео
   const finish = useRef(() => {})
 
   useEffect(() => {
@@ -95,9 +120,23 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     const start = () => {
       if (phase.current !== 'idle') return
       phase.current = 'play'
+      // Снимок кадра, на котором арка «дышала»: он приближается на проходе, видео с этого же кадра стартует потом.
       const idleV = idleVid.current!
-      v.currentTime = Math.min(IDLE_FRAMES, (idleV.currentTime * FPS) / IDLE_STRETCH) / FPS // с того же кадра, что дышал
+      from.current = Math.min(IDLE_FRAMES, (idleV.currentTime * FPS) / IDLE_STRETCH) / FPS
+      // iOS рисует видео, только если play() был в обработчике касания (старт/пауза/старт по таймеру = время идёт,
+      // картинка стоит). Поэтому стартуем сразу, но ×0.0625: за 1.1 с прохода это ~3 кадра; после прохода ×1.
+      v.currentTime = from.current
+      v.playbackRate = 0.0625
       v.play().catch(end) // iPhone в энергосбережении не играет без тапа: сразу финал
+      if (idleV.readyState >= 2) {
+        const c = stillCanvas.current!
+        c.width = idleV.videoWidth
+        c.height = idleV.videoHeight
+        c.getContext('2d')!.drawImage(idleV, 0, 0)
+        c.dataset.on = 'true'
+        // заставку снимок закрывает целиком; на масштабе 1 Safari декодировал бы её заново в полном размере
+        c.parentElement!.querySelector('picture')!.style.display = 'none'
+      }
     }
     // Зашли не сверху (якорь, восстановление позиции) или ссылка шапки увела со сцены: сразу финал.
     const hash = location.hash.slice(1)
@@ -151,10 +190,18 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     const dust = createDust(dustCanvas.current!)
     dust.resize()
     let sp = -1 // сглаженный прогресс
-    let showIdle = true
-    let playing = false // scrub реально пошёл: дальше idle не нужен
-    const onPlaying = () => { playing = true }
-    scrubV.addEventListener('playing', onPlaying)
+    let started = false // проход окончен, scrub запущен
+    let retry = false
+    const play = () => {
+      if (phase.current !== 'play') return
+      started = true
+      // Видео всё время лежит под картиной (Safari тратил 280 мс, когда скрытое видео становилось видимым):
+      // на следующем реально показанном кадре (rVFC) прячем картину со снимком, без мигания.
+      scrubV.playbackRate = 1
+      const show = () => { sec.querySelector<HTMLElement>('.hero__film')!.style.visibility = 'hidden' }
+      if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) scrubV.requestVideoFrameCallback(show)
+      else show()
+    }
     const vars: Record<string, string> = {}
     const set = (k: string, x: number) => {
       const val = x.toFixed(4)
@@ -164,6 +211,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     let raf = 0
     let visible = true
     let wasDone = false
+    let passed: typeof phase.current = 'idle'
     const io = new IntersectionObserver(([e]) => { visible = e.isIntersecting })
     io.observe(sec)
 
@@ -176,29 +224,32 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
       const ph = phase.current
       const p = ph === 'play' ? 0.03 + 0.81 * clamp(scrubV.currentTime / (scrubV.duration || 8))
         : ph === 'end' ? Math.min(1, 0.84 + (0.16 * (now - endAt.current)) / 1400) : 0
-      sp = sp < 0 ? p : sp + (p - sp) * (1 - Math.exp(-dt * 9))
+      const first = sp < 0
+      sp = first ? p : sp + (p - sp) * (1 - Math.exp(-dt * 9))
 
-      const g = clamp(sp / 0.14) // проход сквозь арку
+      // проход сквозь арку: отдельной анимацией на композиторе, в момент ухода из покоя
+      if (ph !== passed) {
+        passed = ph
+        // видео: 1.1 с вместе с началом ролика; «Өткөрүү» из покоя: 0.5 с; открыли сразу на финале: мгновенно
+        if (ph !== 'idle') passGate(sec, gate.z0, ph === 'play' ? 1100 : first ? 0 : 500).then(play, () => {})
+      }
       const v = clamp((sp - 0.03) / 0.81) // видео
       const photo = smooth((sp - 0.86) / 0.06)
       const fin = smooth((sp - 0.9) / 0.07)
-      const gs = 1 + 7.5 * g ** 2.4
-      set('--gate-s', gs)
-      set('--gate-o', 1 - smooth((g - 0.45) / 0.5))
-      set('--ui-o', 1 - smooth(g / 0.25))
-      set('--zoom', Math.min(1, gate.z0 * Math.sqrt(gs))) // картина «дальше» плиты: параллакс
+      set('--zoom', gate.z0) // покой: картина «дальше» плиты, ровно закрывает проём арки
       set('--photo', photo)
       set('--final', fin)
       const isDone = fin > 0.5
       if (isDone !== wasDone) { wasDone = isDone; setDone(isDone) }
 
-      // В покое играет idle.mp4 и лежит поверх, пока scrub не пошёл (так нет скачка кадра назад).
-      if (ph === 'idle' && idleV.readyState >= 2 && idleV.paused) idleV.play().catch(() => {})
-      else if (ph !== 'idle' && !idleV.paused) idleV.pause()
-      const idleNow = idleV.readyState >= 2 && (ph === 'idle' || !playing)
-      if (idleNow !== showIdle) {
-        showIdle = idleNow
-        idleV.dataset.on = String(idleNow)
+      // В покое «дышит» idle.mp4; после жеста он убран (display: none), его место занял снимок.
+      if (ph === 'idle') { if (idleV.readyState >= 2 && idleV.paused) idleV.play().catch(() => {}) }
+      else if (idleV.dataset.on !== 'false') { idleV.pause(); idleV.dataset.on = 'false' }
+      // Safari/iOS ставят видео на паузу, когда вкладку скрыли: вернулись — продолжаем, не вышло — сразу финал,
+      // иначе скролл остался бы заперт.
+      if (ph === 'play' && started && scrubV.paused && !scrubV.ended && !retry) {
+        retry = true
+        scrubV.play().then(() => { retry = false }, finish.current)
       }
 
       dust.step(dt, now / 1000, 1 - smooth((v - 0.6) / 0.16))
@@ -207,18 +258,18 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
     return () => {
       cancelAnimationFrame(raf)
       io.disconnect()
-      scrubV.removeEventListener('playing', onPlaying)
     }
   }, [scrub, gate])
 
   return (
     <section ref={section} className="hero" data-mode={scrub ? 'scrub' : 'still'} aria-labelledby="hero-title">
       <div className="hero__stage">
+        {scrub && <video ref={scrubVid} className="hero__clip" aria-hidden="true" muted playsInline preload="auto" />}
         {scrub && (
           <div className="hero__film" aria-hidden="true" style={gate && { transformOrigin: `${gate.cx}px ${gate.oy}px` }}>
             <Pic pic={heroFirst} alt="" sizes="100vw" eager />
-            <video ref={scrubVid} muted playsInline preload="auto" />
             <video ref={idleVid} src="/hero/idle.mp4" muted playsInline autoPlay preload="auto" data-on="true" />
+            <canvas ref={stillCanvas} className="hero__still" data-on="false" />
           </div>
         )}
 
