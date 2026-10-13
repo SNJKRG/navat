@@ -1,6 +1,6 @@
-# NAVAT Чайкана — сайт
+# NAVAT Dubai — сайт
 
-Кыргызская версия сайта NAVAT (Бишкек, Ош). Vite + React + TypeScript.
+Английская версия для NAVAT Dubai (Stand Point Tower B, Downtown). Кыргызская версия — ветка `kyrgyzstan`. Vite + React + TypeScript.
 
 ```bash
 npm install

@@ -2,7 +2,7 @@ import { ArrowRightIcon, ArrowUpRightIcon, FastForwardIcon } from '@phosphor-ico
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { hero } from './content'
 import { createDust } from './dust'
-import { hallK4Tall, hallK4Wide, heroFirst } from './media'
+import { hallTall, hallWide, heroFirst } from './media'
 import { STAR_RECTS } from './marks'
 import { Pic } from './ui'
 
@@ -275,11 +275,11 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
 
         <div className="hero__photo">
           <picture>
-            <source media="(max-aspect-ratio: 4/5)" type="image/avif" srcSet={hallK4Tall.sources.avif} sizes="100vw" />
-            <source media="(max-aspect-ratio: 4/5)" type="image/webp" srcSet={hallK4Tall.sources.webp} sizes="100vw" />
-            <source type="image/avif" srcSet={hallK4Wide.sources.avif} sizes="100vw" />
-            <source type="image/webp" srcSet={hallK4Wide.sources.webp} sizes="100vw" />
-            <img src={hallK4Wide.img.src} alt="NAVAT чайканасынын залы, Курманжан Датка көчөсү, 242" decoding="async" />
+            <source media="(max-aspect-ratio: 4/5)" type="image/avif" srcSet={hallTall.sources.avif} sizes="100vw" />
+            <source media="(max-aspect-ratio: 4/5)" type="image/webp" srcSet={hallTall.sources.webp} sizes="100vw" />
+            <source type="image/avif" srcSet={hallWide.sources.avif} sizes="100vw" />
+            <source type="image/webp" srcSet={hallWide.sources.webp} sizes="100vw" />
+            <img src={hallWide.img.src} alt="Dining room of NAVAT Dubai, Stand Point Tower B" decoding="async" />
           </picture>
         </div>
 
@@ -303,7 +303,7 @@ export default function Hero({ onVisibleChange }: { onVisibleChange: (visible: b
           </h1>
           <div className="hero__meta">
             <p className="hero__sub"><span className="hero__eyebrow">{hero.eyebrow}</span>{hero.sub}</p>
-            <a className="hero__caption" href="#filialdar">
+            <a className="hero__caption" href="#visit">
               <small>{hero.captionLabel}</small>
               <span>{hero.caption} <ArrowUpRightIcon size={13} /></span>
             </a>

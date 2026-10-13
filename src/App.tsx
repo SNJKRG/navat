@@ -1,10 +1,9 @@
-import { ForkKnifeIcon, MapPinIcon, MopedIcon, PhoneIcon } from '@phosphor-icons/react'
+import { CheckIcon, CopyIcon, ForkKnifeIcon, MapPinIcon, MopedIcon, PhoneIcon } from '@phosphor-icons/react'
 import { MotionConfig } from 'motion/react'
 import { useCallback, useState } from 'react'
-import { Branches, Reserve } from './Branches'
-import { delivery, dishes, footer, halls, hero, nav, story, telHref } from './content'
+import { delivery, dishes, footer, hero, nav, place, room, story, telHref, visit } from './content'
 import Hero from './Hero'
-import { branchPic, chef, dishPics } from './media'
+import { chef, dishPics, roomFacade, roomHall, roomSofas, roomTeddy, roomTerrace } from './media'
 import Menu from './Menu'
 import { Pic, Reveal, Star, Unveil, Wordmark } from './ui'
 
@@ -14,23 +13,22 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <a className="skip-link" href="#main">Негизги мазмунга өтүү</a>
+      <a className="skip-link" href="#main">Skip to content</a>
       <Header solid={!overHero} />
       <main id="main">
         <Hero onVisibleChange={onHero} />
         <Dishes />
         <Menu />
-        <Halls />
-        <Branches />
-        <Reserve />
+        <Room />
+        <Visit />
         <Story />
         <Delivery />
       </main>
       <Footer />
-      <nav className="tabbar" aria-label="Тез өтүү">
-        <a href="#menu"><ForkKnifeIcon size={22} />Меню</a>
-        <a href="#filialdar"><MapPinIcon size={22} />Филиалдар</a>
-        <a href="#bron"><PhoneIcon size={22} />Брондоо</a>
+      <nav className="tabbar" aria-label="Quick links">
+        <a href="#menu"><ForkKnifeIcon size={22} />Menu</a>
+        <a href="#visit"><MapPinIcon size={22} />Visit</a>
+        <a href={telHref(place.phone)}><PhoneIcon size={22} />Call</a>
       </nav>
     </MotionConfig>
   )
@@ -40,12 +38,12 @@ function Header({ solid }: { solid: boolean }) {
   return (
     <header className="header" data-solid={solid}>
       <div className="wrap header__inner">
-        <a className="brand" href="#" aria-label="NAVAT Чайкана, башкы бет">
+        <a className="brand" href="#" aria-label="NAVAT Dubai, home">
           <Star className="brand__star" />
           <Wordmark className="brand__word" />
-          <span className="brand__sub">Чайкана</span>
+          <span className="brand__sub">Dubai</span>
         </a>
-        <nav className="nav" aria-label="Негизги">
+        <nav className="nav" aria-label="Main">
           {nav.map((n) => <a key={n.href} href={n.href}>{n.label}</a>)}
         </nav>
       </div>
@@ -87,8 +85,8 @@ function Dishes() {
             <DishFigure id="kuurdak" />
           </div>
           <div className="dishes__col dishes__col--r">
-            <DishFigure id="boz-uy" />
-            <DishFigure id="samovar" />
+            <DishFigure id="mezze" />
+            <DishFigure id="desserts" />
           </div>
         </div>
       </div>
@@ -96,35 +94,35 @@ function Dishes() {
   )
 }
 
-const hallStrip = [
-  { slug: 'ul-baytik-baatyra-55', cap: 'Байтик Баатыр көч., 55' },
-  { slug: 'ul-lenina-288', cap: 'Ош, Ленин көч., 288' },
-  { slug: 'ul-fuchika-3', cap: 'Фучик көч., 3' },
+const roomStrip = [
+  { pic: roomTerrace, cap: 'The terrace' },
+  { pic: roomHall, cap: 'The hall' },
+  { pic: roomSofas, cap: 'Sofa seating' },
 ]
 
-function Halls() {
+function Room() {
   return (
-    <section id="zaldar" className="section" aria-labelledby="halls-title">
+    <section id="room" className="section" aria-labelledby="room-title">
       <div className="wrap halls">
         <figure className="halls__main">
           <Unveil className="frame">
-            <Pic pic={branchPic('ul-kievskaya-114-1')!} alt="Киев көчөсүндөгү NAVAT, VIP-бөлмө" sizes="(min-width: 900px) 55vw, 100vw" />
+            <Pic pic={roomTeddy} alt="NAVAT Dubai dining room with a giant red teddy bear on the sofa" sizes="(min-width: 900px) 55vw, 100vw" />
           </Unveil>
-          <figcaption>Киев көч., 114/1</figcaption>
+          <figcaption>NAVAT Dubai</figcaption>
         </figure>
         <Reveal className="halls__text">
-          <span className="eyebrow">{halls.eyebrow}</span>
-          <h2 id="halls-title">{halls.title}</h2>
-          <p>{halls.text}</p>
-          <ul className="halls__names" aria-label="Бөлмөлөрдүн аттары">
-            {halls.names.map((n) => <li key={n}>{n}</li>)}
+          <span className="eyebrow">{room.eyebrow}</span>
+          <h2 id="room-title">{room.title}</h2>
+          <p>{room.text}</p>
+          <ul className="halls__names">
+            {room.features.map((n) => <li key={n}>{n}</li>)}
           </ul>
-          <a className="btn btn--ghost" href="#bron">{halls.cta}</a>
+          <a className="btn btn--ghost" href="#visit">{room.cta}</a>
         </Reveal>
         <div className="halls__strip">
-          {hallStrip.map((h) => (
-            <figure key={h.slug}>
-              <div className="frame"><Pic pic={branchPic(h.slug)!} alt="" sizes="(min-width: 900px) 33vw, 78vw" /></div>
+          {roomStrip.map((h) => (
+            <figure key={h.cap}>
+              <div className="frame"><Pic pic={h.pic} alt="" sizes="(min-width: 900px) 33vw, 78vw" /></div>
               <figcaption>{h.cap}</figcaption>
             </figure>
           ))}
@@ -134,9 +132,49 @@ function Halls() {
   )
 }
 
+function Visit() {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(place.phone)
+      setCopied(true)
+    } catch { /* no clipboard access: the number stays visible as text */ }
+  }
+
+  return (
+    <section id="visit" className="section section--tint" aria-labelledby="visit-title">
+      <div className="wrap reserve">
+        <Reveal className="reserve__intro">
+          <h2 id="visit-title">{visit.title}</h2>
+          <p>{visit.text}</p>
+          <figure className="visit__photo">
+            <div className="frame"><Pic pic={roomFacade} alt="NAVAT Dubai storefront and terrace on the Boulevard" sizes="(min-width: 900px) 34rem, 100vw" /></div>
+          </figure>
+        </Reveal>
+
+        <div className="ticket">
+          <span className="ticket__city">{place.name}, {place.area}</span>
+          <h3>{place.address}</h3>
+          <div className="ticket__row"><span>{visit.hours}</span><span>{place.hours}</span></div>
+          <div className="ticket__row"><span>{visit.breakfast}</span><span>{place.breakfast}</span></div>
+          <a className="ticket__phone" href={telHref(place.phone)}>{place.phone}</a>
+          <div className="ticket__actions">
+            <a className="btn btn--primary" href={telHref(place.phone)}><PhoneIcon size={18} weight="bold" />{visit.call}</a>
+            <a className="btn btn--ghost" href={place.map} target="_blank" rel="noreferrer"><MapPinIcon size={18} />{visit.route}</a>
+            <button type="button" className="btn btn--ghost" onClick={copy}>
+              {copied ? <CheckIcon size={18} /> : <CopyIcon size={18} />}
+              {copied ? visit.copied : visit.copy}
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function Story() {
   return (
-    <section id="biz" className="section" aria-labelledby="story-title">
+    <section id="about" className="section" aria-labelledby="story-title">
       <div className="wrap story">
         <figure className="story__photo">
           <Unveil className="frame"><Pic pic={chef} alt={story.chef} sizes="(min-width: 900px) 40vw, 100vw" /></Unveil>
@@ -166,7 +204,6 @@ function Delivery() {
           <p>{delivery.text}</p>
         </div>
         <div className="delivery__act">
-          <a className="phone" href={telHref(delivery.tel)}>{delivery.phone}</a>
           <a className="btn btn--primary" href={delivery.href} target="_blank" rel="noreferrer">
             <MopedIcon size={18} weight="bold" />{delivery.cta}
           </a>
@@ -182,18 +219,24 @@ function Footer() {
       <div className="wrap">
         <div className="footer__grid">
           <div>
-            <p className="footer__tag">{hero.title}</p>
+            <p className="footer__tag">{hero.titleLines.join(' ')}</p>
           </div>
           <div>
-            <h3>Байланыш</h3>
-            <ul><li><a href={`mailto:${footer.email}`}>{footer.email}</a></li></ul>
+            <h3>Contact</h3>
+            <ul>
+              <li><a href={telHref(place.phone)}>{place.phone}</a></li>
+              <li><a href={place.map} target="_blank" rel="noreferrer">{place.address}</a></li>
+            </ul>
           </div>
           <div>
-            <h3>Instagram</h3>
-            <ul>{footer.instagram.map((i) => <li key={i.href}><a href={i.href} target="_blank" rel="noreferrer">{i.label}</a></li>)}</ul>
+            <h3>Follow</h3>
+            <ul>
+              <li><a href={place.instagram.href} target="_blank" rel="noreferrer">Instagram {place.instagram.label}</a></li>
+              <li><a href={place.facebook} target="_blank" rel="noreferrer">Facebook</a></li>
+            </ul>
           </div>
           <div>
-            <h3>Тил</h3>
+            <h3>NAVAT</h3>
             <ul>
               {footer.langs.map((l) => (
                 <li key={l.label}>{l.current ? <span aria-current="true">{l.label}</span> : <a href={l.href}>{l.label}</a>}</li>
@@ -204,7 +247,7 @@ function Footer() {
         <div className="footer__word"><Wordmark title="NAVAT" /></div>
         <div className="footer__base">
           <span>{footer.copy}</span>
-          <span>Бишкек, Ош</span>
+          <span>Downtown Dubai, UAE</span>
         </div>
       </div>
     </footer>
